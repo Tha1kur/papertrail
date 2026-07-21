@@ -24,6 +24,7 @@ export interface MessageView {
 
 export interface AppendInput {
   threadId: string;
+  userId: string;
   role: MessageRole;
   content: string;
   status?: MessageStatus;
@@ -49,6 +50,7 @@ export async function appendMessage(input: AppendInput): Promise<MessageView> {
   if (input.clientMessageId) {
     const existing = await MessageModel.findOne({
       threadId: input.threadId,
+      userId: input.userId,
       clientMessageId: input.clientMessageId,
     }).lean();
     if (existing) return toView(existing);
@@ -60,6 +62,7 @@ export async function appendMessage(input: AppendInput): Promise<MessageView> {
         [
           {
             threadId: input.threadId,
+            userId: input.userId,
             role: input.role,
             content: input.content,
             status: input.status ?? "complete",
@@ -76,7 +79,7 @@ export async function appendMessage(input: AppendInput): Promise<MessageView> {
       if (!message) throw new Error("Message insert returned no document");
 
       await ThreadModel.updateOne(
-        { _id: input.threadId },
+        { _id: input.threadId, userId: input.userId },
         { $inc: { messageCount: 1 }, $set: { lastMessageAt: message.createdAt } },
         { session },
       );
@@ -90,6 +93,7 @@ export async function appendMessage(input: AppendInput): Promise<MessageView> {
     if (isDuplicateKey(err) && input.clientMessageId) {
       const existing = await MessageModel.findOne({
         threadId: input.threadId,
+        userId: input.userId,
         clientMessageId: input.clientMessageId,
       }).lean();
       if (existing) return toView(existing);
@@ -108,11 +112,13 @@ export async function appendMessage(input: AppendInput): Promise<MessageView> {
  */
 export async function beginStreamingMessage(
   threadId: string,
+  userId: string,
   provider?: string,
   model?: string,
 ): Promise<string> {
   const view = await appendMessage({
     threadId,
+    userId,
     role: "assistant",
     content: "",
     status: "streaming",
@@ -124,6 +130,7 @@ export async function beginStreamingMessage(
 
 export async function finaliseMessage(
   id: string,
+  userId: string,
   update: {
     content: string;
     status: MessageStatus;
@@ -133,7 +140,7 @@ export async function finaliseMessage(
   },
 ): Promise<void> {
   await MessageModel.updateOne(
-    { _id: id },
+    { _id: id, userId },
     {
       $set: {
         content: update.content,
@@ -149,12 +156,14 @@ export async function finaliseMessage(
 /** One page of a conversation, oldest first. */
 export async function listMessages(
   threadId: string,
+  userId: string,
   options: { after?: Cursor; limit?: number } = {},
 ): Promise<Page<MessageView>> {
   const limit = clampLimit(options.limit, 50, MAX_PAGE_SIZE);
 
   const rows = await MessageModel.find({
     threadId,
+    userId,
     ...(options.after ? pastCursor(options.after, "createdAt", "asc") : {}),
   })
     .sort(cursorSort("createdAt", "asc"))
@@ -179,11 +188,13 @@ export async function listMessages(
  */
 export async function recentMessages(
   threadId: string,
+  userId: string,
   limit: number,
   since?: Date,
 ): Promise<MessageView[]> {
   const rows = await MessageModel.find({
     threadId,
+    userId,
     // `failed` messages are excluded: replaying a failed generation back to
     // the model teaches it that empty or broken replies are acceptable.
     status: { $ne: "failed" },

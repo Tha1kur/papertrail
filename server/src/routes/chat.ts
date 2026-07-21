@@ -1,11 +1,15 @@
 import { Router } from "express";
 import { z } from "zod";
 import { validate } from "../middleware/validate.js";
+import { requireAuth, currentUser } from "../middleware/requireAuth.js";
 import { UpstreamError } from "../lib/errors.js";
 import { SSEStream } from "../lib/sseResponse.js";
 import { sendMessage, streamMessage } from "../services/chatService.js";
 
 const router = Router();
+
+// Sending a message always costs money and always belongs to someone.
+router.use(requireAuth);
 
 const ChatBody = z.object({
   threadId: z.uuid("Thread id must be a UUID"),
@@ -32,6 +36,7 @@ router.post("/", validate({ body: ChatBody }), async (req, res) => {
   try {
     const result = await sendMessage({
       threadId,
+      userId: currentUser(req).id,
       message,
       ...(clientMessageId ? { clientMessageId } : {}),
     });
@@ -72,6 +77,7 @@ router.post("/stream", validate({ body: ChatBody }), async (req, res) => {
   try {
     for await (const event of streamMessage({
       threadId,
+      userId: currentUser(req).id,
       message,
       signal: abort.signal,
       ...(clientMessageId ? { clientMessageId } : {}),

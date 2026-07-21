@@ -49,6 +49,7 @@ const MAX_HISTORY_FETCH = 200;
 
 export interface SendInput {
   threadId: string;
+  userId: string;
   message: string;
   clientMessageId?: string | undefined;
   signal?: AbortSignal | undefined;
@@ -71,18 +72,20 @@ interface PreparedTurn {
  * endpoint the client called.
  */
 async function prepareTurn(input: SendInput, provider: LLMProvider): Promise<PreparedTurn> {
-  await ensureThread(input.threadId, buildTitle(input.message));
+  await ensureThread(input.userId, input.threadId, buildTitle(input.message));
 
   const userMessage = await appendMessage({
     threadId: input.threadId,
+    userId: input.userId,
     role: "user",
     content: input.message,
     ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
   });
 
-  const summaryState = await getSummaryState(input.threadId);
+  const summaryState = await getSummaryState(input.userId, input.threadId);
   const stored = await recentMessages(
     input.threadId,
+    input.userId,
     MAX_HISTORY_FETCH,
     summaryState?.summarisedThrough ?? undefined,
   );
@@ -113,7 +116,7 @@ async function prepareTurn(input: SendInput, provider: LLMProvider): Promise<Pre
       // is now represented in the summary and will not be loaded again.
       const boundary = stored[context.evicted.length - 1];
       if (boundary) {
-        await updateSummary(input.threadId, merged, boundary.createdAt);
+        await updateSummary(input.userId, input.threadId, merged, boundary.createdAt);
         logger.info(
           { threadId: input.threadId, evicted: context.evicted.length },
           "context evicted into summary",
@@ -152,6 +155,7 @@ export async function sendMessage(
 
   const assistant = await appendMessage({
     threadId: input.threadId,
+    userId: input.userId,
     role: "assistant",
     content: result.text,
     status: "complete",
@@ -189,7 +193,7 @@ export async function* streamMessage(
 ): AsyncGenerator<ChatStreamEvent, void, undefined> {
   const turn = await prepareTurn(input, provider);
 
-  const messageId = await beginStreamingMessage(input.threadId);
+  const messageId = await beginStreamingMessage(input.threadId, input.userId);
   yield { type: "message", messageId };
 
   let accumulated = "";
@@ -209,7 +213,7 @@ export async function* streamMessage(
       } else {
         provider_ = event.provider;
         model = event.model;
-        await finaliseMessage(messageId, {
+        await finaliseMessage(messageId, input.userId, {
           content: accumulated,
           status: "complete",
           provider: event.provider,
@@ -225,7 +229,7 @@ export async function* streamMessage(
     // a partial message, but only the second is worth alerting on.
     const aborted = input.signal?.aborted === true;
 
-    await finaliseMessage(messageId, {
+    await finaliseMessage(messageId, input.userId, {
       content: accumulated,
       // Text that arrived is kept and marked incomplete; nothing at all is a
       // failure, and replaying an empty assistant turn would poison the next

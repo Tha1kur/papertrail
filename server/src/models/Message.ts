@@ -43,6 +43,16 @@ const MessageSchema = new Schema(
     // References Thread._id, which is a client-generated UUID string.
     threadId: { type: String, required: true },
 
+    /**
+     * Denormalised from the parent thread.
+     *
+     * Strictly redundant — ownership could be derived by loading the thread
+     * first — but that makes every message read a two-step operation where
+     * forgetting step one is a silent cross-tenant data leak. Carrying the
+     * owner on the row means the filter is impossible to omit.
+     */
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+
     role: { type: String, enum: MESSAGE_ROLES, required: true },
 
     /**
@@ -78,6 +88,9 @@ const MessageSchema = new Schema(
 // Every read of a conversation is "this thread's messages, oldest first".
 // Without this index that is a full collection scan plus an in-memory sort,
 // on every single page load.
+// threadId leads rather than userId: it is far more selective, and every
+// message query names it. userId is applied as an additional filter over the
+// already-narrow result, so it does not need to be in the index.
 MessageSchema.index({ threadId: 1, createdAt: 1, _id: 1 });
 
 // Enforces the idempotency guarantee above. Partial so that messages without

@@ -79,6 +79,33 @@ const EnvSchema = z.object({
 
   /** SSE comment sent on an idle stream to stop proxies closing it. */
   SSE_HEARTBEAT_MS: z.coerce.number().int().positive().default(15_000),
+
+  // --- Authentication ---
+
+  /**
+   * Signs access tokens. 32 bytes minimum because a JWT secret short enough
+   * to brute force is the same as no authentication at all — and the failure
+   * is silent, since short secrets verify perfectly well.
+   */
+  JWT_ACCESS_SECRET: z
+    .string()
+    .min(32, "must be at least 32 characters — generate with: openssl rand -base64 48"),
+
+  /**
+   * Short by design. The access token is a bearer credential we cannot
+   * revoke, so its blast radius is bounded by its lifetime; the refresh
+   * token, which we *can* revoke, does the long-lived work.
+   */
+  ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(15),
+
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
+
+  /** bcrypt work factor. 12 is roughly 250ms on current hardware — slow
+   *  enough to punish offline cracking, fast enough for a login form. */
+  BCRYPT_ROUNDS: z.coerce.number().int().min(10).max(15).default(12),
+
+  /** Set when the API and client are on different subdomains in production. */
+  COOKIE_DOMAIN: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

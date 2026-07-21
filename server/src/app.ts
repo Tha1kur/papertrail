@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import helmet from "helmet";
+import cookieParser from "cookie-parser";
 import { env } from "./config/env.js";
 import { httpLogger } from "./middleware/httpLogger.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
@@ -8,6 +9,7 @@ import { ForbiddenError } from "./lib/errors.js";
 import healthRoutes from "./routes/health.js";
 import chatRoutes from "./routes/chat.js";
 import threadRoutes from "./routes/threads.js";
+import authRoutes from "./routes/auth.js";
 
 /**
  * Builds the Express app without starting a listener.
@@ -48,9 +50,14 @@ export function buildApp(): Express {
   // between us and a memory-exhaustion request.
   app.use(express.json({ limit: "1mb" }));
 
+  // Auth tokens arrive as httpOnly cookies, so they must be parsed before
+  // any route that reads them.
+  app.use(cookieParser());
+
   app.use(httpLogger);
 
   app.use("/health", healthRoutes);
+  app.use("/api/auth", authRoutes);
   app.use("/api/threads", threadRoutes);
   app.use("/api/chat", chatRoutes);
 

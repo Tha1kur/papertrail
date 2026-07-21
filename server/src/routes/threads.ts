@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { validate } from "../middleware/validate.js";
+import { requireAuth, currentUser } from "../middleware/requireAuth.js";
 import { NotFoundError } from "../lib/errors.js";
 import { decodeCursor } from "../lib/pagination.js";
 import {
@@ -12,6 +13,10 @@ import {
 import { listMessages } from "../repositories/messageRepository.js";
 
 const router = Router();
+
+// Every route below is per-user. Mounted here rather than repeated on each
+// handler so a route added later cannot be left unprotected by omission.
+router.use(requireAuth);
 
 /** Client-generated UUIDs. Validated so a caller cannot use the id field to
  *  smuggle operators into a query or bloat an index with arbitrary strings. */
@@ -33,7 +38,7 @@ type PageQueryInput = z.infer<typeof PageQuery>;
 router.get("/", validate({ query: PageQuery }), async (req, res) => {
   const { cursor, limit } = req.validatedQuery as PageQueryInput;
 
-  const page = await listThreads({
+  const page = await listThreads(currentUser(req).id, {
     ...(cursor ? { after: decodeCursor(cursor) } : {}),
     ...(limit !== undefined ? { limit } : {}),
   });
@@ -42,7 +47,7 @@ router.get("/", validate({ query: PageQuery }), async (req, res) => {
 });
 
 router.get("/:threadId", validate({ params: ThreadIdParams }), async (req, res) => {
-  const thread = await findThread(req.params.threadId as string);
+  const thread = await findThread(currentUser(req).id, req.params.threadId as string);
   if (!thread) throw new NotFoundError("Thread");
 
   res.json(thread);
@@ -57,10 +62,12 @@ router.get(
 
     // 404 on a missing thread rather than returning an empty page, so the
     // client can tell "no messages yet" apart from "this does not exist".
-    const thread = await findThread(threadId);
+    const userId = currentUser(req).id;
+
+    const thread = await findThread(userId, threadId);
     if (!thread) throw new NotFoundError("Thread");
 
-    const page = await listMessages(threadId, {
+    const page = await listMessages(threadId, userId, {
       ...(cursor ? { after: decodeCursor(cursor) } : {}),
       ...(limit !== undefined ? { limit } : {}),
     });
@@ -75,7 +82,7 @@ router.patch(
   async (req, res) => {
     const { title } = req.body as z.infer<typeof RenameBody>;
 
-    const thread = await renameThread(req.params.threadId as string, title);
+    const thread = await renameThread(currentUser(req).id, req.params.threadId as string, title);
     if (!thread) throw new NotFoundError("Thread");
 
     res.json(thread);
@@ -83,7 +90,7 @@ router.patch(
 );
 
 router.delete("/:threadId", validate({ params: ThreadIdParams }), async (req, res) => {
-  const result = await deleteThread(req.params.threadId as string);
+  const result = await deleteThread(currentUser(req).id, req.params.threadId as string);
   if (!result.deleted) throw new NotFoundError("Thread");
 
   req.log?.info({ threadId: req.params.threadId, messages: result.messages }, "thread deleted");

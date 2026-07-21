@@ -15,6 +15,17 @@ const ThreadSchema = new Schema(
   {
     _id: { type: String, required: true },
 
+    /**
+     * Owner. Required, and every query in threadRepository filters on it.
+     *
+     * Because thread ids are client-generated, an id is guessable-ish and
+     * must never be sufficient on its own to reach a thread — otherwise any
+     * signed-in user could read someone else's conversation by supplying
+     * their UUID. Ownership is checked in the query itself rather than after
+     * loading, so a missing filter fails closed as a 404.
+     */
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+
     title: { type: String, default: "New chat", trim: true, maxlength: 200 },
 
     /**
@@ -48,9 +59,10 @@ const ThreadSchema = new Schema(
   },
 );
 
-// The sidebar reads threads newest-first. Without this it is a collection
-// scan and an in-memory sort every time.
-ThreadSchema.index({ lastMessageAt: -1 });
+// The sidebar reads one user's threads, newest-first. userId leads because
+// every query filters on it; without that prefix the index cannot serve the
+// query and it degrades to a scan of every user's threads.
+ThreadSchema.index({ userId: 1, lastMessageAt: -1, _id: -1 });
 
 export type Thread = InferSchemaType<typeof ThreadSchema>;
 export type ThreadDocument = HydratedDocument<Thread>;
