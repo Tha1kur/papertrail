@@ -1,0 +1,137 @@
+@import "tailwindcss";
+
+/**
+ * Tailwind v4 wires `dark:` to the OS preference by default. We drive it
+ * from a class instead, so the in-app toggle can override the system —
+ * otherwise the toggle appears to do nothing for anyone whose OS theme
+ * disagrees with their choice.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Warm paper rather than pure white. Pure white beside a dark sidebar is
+     harsh over a long reading session, and this product is about documents. */
+  --color-paper-50: #fdfcfa;
+  --color-paper-100: #f7f4ef;
+  --color-paper-200: #ece7de;
+  --color-paper-300: #dcd4c6;
+
+  --color-ink-400: #8a8578;
+  --color-ink-600: #4a4740;
+  --color-ink-900: #1c1b18;
+
+  --color-night-700: #26262b;
+  --color-night-800: #1a1a1d;
+  --color-night-850: #151517;
+  --color-night-900: #101012;
+
+  /* Ochre — the colour of a margin annotation. Used for citations and the
+     primary action and nowhere else, so it consistently means "source". */
+  --color-accent-400: #d9a441;
+  --color-accent-500: #c8912c;
+  --color-accent-600: #a97722;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-paper-100 text-ink-900 antialiased dark:bg-night-900 dark:text-paper-200;
+    font-family: var(--font-sans);
+  }
+
+  /* Focus ring on keyboard navigation only. Removing outlines entirely makes
+     the app unusable without a mouse; showing them on every click is why
+     people remove them. */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent-500;
+  }
+
+  ::selection {
+    @apply bg-accent-400/30;
+  }
+}
+
+@layer components {
+  /* Markdown rendered from model output. Scoped, so model-authored content
+     cannot restyle the surrounding application. */
+  .prose-chat {
+    @apply text-[15px] leading-relaxed;
+  }
+  .prose-chat > * + * {
+    @apply mt-4;
+  }
+  .prose-chat h1,
+  .prose-chat h2,
+  .prose-chat h3 {
+    @apply font-semibold tracking-tight;
+  }
+  .prose-chat h1 {
+    @apply text-xl;
+  }
+  .prose-chat h2 {
+    @apply text-lg;
+  }
+  .prose-chat ul {
+    @apply list-disc space-y-1 pl-5;
+  }
+  .prose-chat ol {
+    @apply list-decimal space-y-1 pl-5;
+  }
+  .prose-chat code:not(pre code) {
+    @apply rounded bg-paper-200 px-1.5 py-0.5 font-mono text-[13px] dark:bg-night-700;
+  }
+  .prose-chat pre {
+    @apply overflow-x-auto rounded-lg bg-night-850 p-4 text-[13px] leading-relaxed;
+  }
+  .prose-chat pre code {
+    @apply font-mono text-paper-200;
+  }
+  .prose-chat a {
+    @apply text-accent-600 underline underline-offset-2 dark:text-accent-400;
+  }
+  .prose-chat blockquote {
+    @apply border-l-2 border-paper-300 pl-4 text-ink-600 dark:border-night-700 dark:text-ink-400;
+  }
+  .prose-chat table {
+    @apply w-full border-collapse text-sm;
+  }
+  .prose-chat th,
+  .prose-chat td {
+    @apply border border-paper-300 px-3 py-1.5 text-left dark:border-night-700;
+  }
+
+  /* Blinking caret at the end of a streaming reply. Cheap, and it is the
+     difference between reading "thinking" and reading "frozen". */
+  .streaming-caret::after {
+    content: "";
+    @apply ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.15em] bg-accent-500;
+    animation: caret 1s steps(2) infinite;
+  }
+}
+
+@keyframes caret {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
