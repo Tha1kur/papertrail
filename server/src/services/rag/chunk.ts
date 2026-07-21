@@ -1,5 +1,6 @@
 import type { ExtractedPage } from "./extract.js";
 import { estimateTokens } from "../context/tokens.js";
+import { env } from "../../config/env.js";
 
 export interface TextChunk {
   index: number;
@@ -9,17 +10,18 @@ export interface TextChunk {
 }
 
 /**
- * Roughly 300 tokens. Chunk size is the single biggest lever on retrieval
- * quality and it cuts both ways:
+ * Roughly 175 tokens. Chunk size cuts both ways:
  *
  *   - too large, and one chunk covers several topics. Its embedding becomes
  *     an average of all of them and matches none of them well
  *   - too small, and a passage loses the context that made it meaningful.
  *     "It rose by 12%" is unretrievable without knowing what "it" is
  *
- * ~300 tokens is about a paragraph or two, which is usually one idea.
+ * Both halves of that were observed, not assumed — see the measurements in
+ * config/env.ts. The default came from running the eval harness at three
+ * sizes, not from picking a number that sounded reasonable.
  */
-const TARGET_CHARS = 1_200;
+const TARGET_CHARS = env.CHUNK_TARGET_CHARS;
 
 /**
  * Overlap exists for boundaries. A sentence answering the question could
@@ -30,7 +32,7 @@ const TARGET_CHARS = 1_200;
  * The cost is storage and some duplicate results, which is cheap next to
  * silently failing to retrieve.
  */
-const OVERLAP_CHARS = 200;
+const OVERLAP_CHARS = env.CHUNK_OVERLAP_CHARS;
 
 /** Below this, a trailing fragment is merged backwards rather than kept as
  *  its own chunk — a 20-character chunk carries no usable meaning. */

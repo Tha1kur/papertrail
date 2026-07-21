@@ -157,6 +157,34 @@ const EnvSchema = z.object({
   /** Atlas M0 has 512MB total, shared with every collection. */
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
 
+  /**
+   * Target chunk size in characters, and the overlap between neighbours.
+   *
+   * Chunk size is the single biggest lever on retrieval quality, so this
+   * value was measured with the eval harness rather than chosen:
+   *
+   *   chars   chunks   passed   recall@6   MRR     refused by threshold
+   *   1200    2        14/15    91.7%      0.917   2/3
+   *   700     4        15/15    100%       0.917   2/3
+   *   450     6        15/15    100%       0.875   1/3
+   *
+   * 1200 failed a question because a whole document landed just under the
+   * target and became one chunk spanning three unrelated topics — its
+   * embedding averaged all of them and matched none sharply.
+   *
+   * 450 recovers recall but costs precision: MRR falls, and fewer
+   * unanswerable questions are stopped by the relevance threshold, pushing
+   * that work onto the model declining instead — the weaker of the two
+   * defences, since it depends on the prompt being obeyed.
+   *
+   * 700 has the recall of the small setting and the precision of the large
+   * one. Re-measure if the corpus changes character: the right value depends
+   * on how the documents are written, which is exactly why this is
+   * configuration and not a constant.
+   */
+  CHUNK_TARGET_CHARS: z.coerce.number().int().min(200).max(4_000).default(700),
+  CHUNK_OVERLAP_CHARS: z.coerce.number().int().min(0).max(1_000).default(120),
+
   // --- Rate limiting and cost control ---
 
   /**

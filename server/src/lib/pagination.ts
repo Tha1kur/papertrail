@@ -40,7 +40,18 @@ export function decodeCursor(raw: string): Cursor {
     throw new BadRequestError("Malformed pagination cursor");
   }
 
-  const separator = decoded.lastIndexOf("|");
+  /**
+   * Split on the FIRST separator, not the last.
+   *
+   * The timestamp is a fixed-shape ISO string and can never contain "|",
+   * whereas an id is arbitrary and might. Splitting on the last separator
+   * puts part of the id into the timestamp, which parses as Invalid Date —
+   * and an Invalid Date compares false against everything, so the query
+   * silently returns an empty page instead of erroring. Today's ids (UUIDs
+   * and ObjectIds) contain no "|", so this would have sat latent until some
+   * future id format did.
+   */
+  const separator = decoded.indexOf("|");
   if (separator === -1) throw new BadRequestError("Malformed pagination cursor");
 
   const value = new Date(decoded.slice(0, separator));
