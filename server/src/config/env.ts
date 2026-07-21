@@ -38,6 +38,36 @@ const EnvSchema = z.object({
 
   /** Graceful shutdown gives in-flight requests this long to finish. */
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+
+  // --- Language model providers ---
+  // Gemini is primary: it is the only one of the two with a free embeddings
+  // endpoint, which the retrieval pipeline depends on. Groq is the failover
+  // for chat only.
+
+  GEMINI_API_KEY: z.string().min(1),
+  GEMINI_CHAT_MODEL: z.string().min(1).default("gemini-2.5-flash"),
+  GEMINI_EMBED_MODEL: z.string().min(1).default("gemini-embedding-001"),
+  /**
+   * Must match the Atlas vector index definition exactly, and must not change
+   * once documents are indexed — every stored vector would need recomputing.
+   * 768 over the model's native 3072 is a deliberate storage trade: Atlas M0
+   * has 512MB total, and 3072 floats per chunk would exhaust it fast.
+   */
+  GEMINI_EMBED_DIMENSIONS: z.coerce.number().int().positive().default(768),
+
+  /**
+   * gemini-2.5-flash reasons before answering by default, which spends output
+   * tokens and adds seconds of latency before the first one arrives. For
+   * chat-over-documents the retrieval does the hard work, so it is off by
+   * default. Raise it if answer quality on multi-step questions suffers.
+   */
+  GEMINI_THINKING_BUDGET: z.coerce.number().int().min(0).default(0),
+
+  GROQ_API_KEY: z.string().min(1),
+  GROQ_CHAT_MODEL: z.string().min(1).default("llama-3.3-70b-versatile"),
+
+  /** Upper bound on a single model call before we give up and fail over. */
+  LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import ThreadModel from "../models/Thread.js";
-import { getOpenAIAPIResponse } from "../lib/openai.js";
+import { chatProvider } from "../services/llm/index.js";
 import { validate } from "../middleware/validate.js";
 import { NotFoundError, UpstreamError } from "../lib/errors.js";
 
@@ -73,9 +73,21 @@ router.post("/chat", validate({ body: ChatBody }), async (req, res) => {
 
   thread.messages.push({ role: "user", content: message });
 
-  let reply: string;
+  // The whole conversation goes to the model, not just the latest turn.
+  // The original sent one message, so the assistant had no memory: ask "what
+  // did I just say?" and it genuinely could not tell you.
+  //
+  // Sending everything is not the final answer either — it grows without
+  // bound and eventually exceeds the context window. Token budgeting is the
+  // next change; this at least makes the feature work.
+  const history = thread.messages.map((m) => ({
+    role: m.role as "user" | "assistant",
+    content: m.content,
+  }));
+
+  let result;
   try {
-    reply = await getOpenAIAPIResponse(message);
+    result = await chatProvider.generate({ messages: history, temperature: 0.7 });
   } catch (err) {
     // Persist the user's message even though the reply failed — losing what
     // someone typed because a third party had a bad minute is unacceptable.
@@ -83,10 +95,15 @@ router.post("/chat", validate({ body: ChatBody }), async (req, res) => {
     throw new UpstreamError("Language model", "The model could not be reached", err);
   }
 
-  thread.messages.push({ role: "assistant", content: reply });
+  thread.messages.push({ role: "assistant", content: result.text });
   await thread.save();
 
-  res.json({ reply });
+  req.log?.info(
+    { provider: result.provider, model: result.model, usage: result.usage },
+    "generated reply",
+  );
+
+  res.json({ reply: result.text });
 });
 
 function buildTitle(message: string, maxLength = 60): string {
