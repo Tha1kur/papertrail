@@ -4,5 +4,26 @@
 # Node.js dependencies
 node_modules/
 
-# Environment variables
+# Environment variables — never commit real credentials.
+# .env.example is tracked and documents every required key.
 .env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Test and coverage artifacts
+coverage/
+.vitest/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
