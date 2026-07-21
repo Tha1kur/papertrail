@@ -37,8 +37,12 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     req.log?.error({ err }, "unhandled error");
   }
 
-  if (normalised instanceof RateLimitError && normalised.retryAfterSeconds !== undefined) {
-    res.setHeader("Retry-After", String(normalised.retryAfterSeconds));
+  // Checked against the original error, not `normalised` — that is a plain
+  // object built by normalise() and can never be an instanceof anything.
+  // Getting this wrong meant the header was silently never set, and a
+  // client had no idea how long to wait before retrying.
+  if (err instanceof RateLimitError && err.retryAfterSeconds !== undefined) {
+    res.setHeader("Retry-After", String(err.retryAfterSeconds));
   }
 
   // Headers already sent means a response was streaming when it failed.

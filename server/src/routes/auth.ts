@@ -2,6 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { validate } from "../middleware/validate.js";
 import { requireAuth, currentUser } from "../middleware/requireAuth.js";
+import { rateLimit } from "../middleware/rateLimit.js";
+import { env } from "../config/env.js";
 import { UnauthorizedError } from "../lib/errors.js";
 import UserModel from "../models/User.js";
 import {
@@ -15,6 +17,18 @@ import {
 import { REFRESH_COOKIE, clearAuthCookies, setAuthCookies } from "../services/auth/cookies.js";
 
 const router = Router();
+
+/**
+ * Keyed on IP because there is no user yet — that is the point of these
+ * endpoints. It is a blunt key (anyone behind the same NAT shares it), but
+ * without it, login is an unlimited password-guessing oracle.
+ */
+const credentialLimit = rateLimit({
+  bucket: "auth",
+  limit: env.RATE_LIMIT_AUTH_PER_15MIN,
+  windowSeconds: 900,
+  by: "ip",
+});
 
 const Credentials = z.object({
   email: z.email("Enter a valid email address").max(254).toLowerCase().trim(),
@@ -41,7 +55,7 @@ function sessionMeta(req: Parameters<Parameters<typeof router.post>[1]>[0]) {
   };
 }
 
-router.post("/register", validate({ body: RegisterBody }), async (req, res) => {
+router.post("/register", credentialLimit, validate({ body: RegisterBody }), async (req, res) => {
   const { email, password, displayName } = req.body as z.infer<typeof RegisterBody>;
 
   const result = await register(email, password, displayName, sessionMeta(req));
@@ -51,7 +65,7 @@ router.post("/register", validate({ body: RegisterBody }), async (req, res) => {
   res.status(201).json({ user: result.user });
 });
 
-router.post("/login", validate({ body: Credentials }), async (req, res) => {
+router.post("/login", credentialLimit, validate({ body: Credentials }), async (req, res) => {
   const { email, password } = req.body as z.infer<typeof Credentials>;
 
   const result = await login(email, password, sessionMeta(req));

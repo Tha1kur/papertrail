@@ -2,6 +2,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { validate } from "../middleware/validate.js";
 import { requireAuth, currentUser } from "../middleware/requireAuth.js";
+import { rateLimit } from "../middleware/rateLimit.js";
+import { assertWithinBudget } from "../services/limits/budget.js";
+import { env } from "../config/env.js";
 import { UpstreamError } from "../lib/errors.js";
 import { SSEStream } from "../lib/sseResponse.js";
 import { sendMessage, streamMessage } from "../services/chatService.js";
@@ -10,6 +13,17 @@ const router = Router();
 
 // Sending a message always costs money and always belongs to someone.
 router.use(requireAuth);
+
+// Two layers, guarding different things: the limiter caps requests per
+// minute, the budget caps total spend. Twelve requests a minute sustained
+// all day is still a very large bill.
+router.use(
+  rateLimit({
+    bucket: "chat",
+    limit: env.RATE_LIMIT_CHAT_PER_MINUTE,
+    windowSeconds: 60,
+  }),
+);
 
 const ChatBody = z.object({
   threadId: z.uuid("Thread id must be a UUID"),
@@ -32,6 +46,8 @@ type ChatInput = z.infer<typeof ChatBody>;
  */
 router.post("/", validate({ body: ChatBody }), async (req, res) => {
   const { threadId, message, clientMessageId } = req.body as ChatInput;
+
+  await assertWithinBudget(currentUser(req).id);
 
   try {
     const result = await sendMessage({

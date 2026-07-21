@@ -18,6 +18,7 @@ import {
   getSummaryState,
   updateSummary,
 } from "../repositories/threadRepository.js";
+import { recordUsage } from "./limits/budget.js";
 
 /**
  * Written for a general conversation, with document grounding layered on
@@ -241,6 +242,12 @@ export async function sendMessage(
     citations: turn.citations,
   });
 
+  // Recorded after the call, because the cost is only known once it returns.
+  // Awaited rather than fired and forgotten: an unawaited write can be lost
+  // if the process is shut down between the response and the flush, and the
+  // whole point is that spend is never undercounted.
+  await recordUsage(input.userId, result.usage);
+
   return {
     reply: result.text,
     messageId: assistant.id,
@@ -302,6 +309,7 @@ export async function* streamMessage(
           usage: event.usage,
           citations: turn.citations,
         });
+        await recordUsage(input.userId, event.usage);
       }
     }
 

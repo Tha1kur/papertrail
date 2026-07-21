@@ -156,6 +156,36 @@ const EnvSchema = z.object({
 
   /** Atlas M0 has 512MB total, shared with every collection. */
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
+
+  // --- Rate limiting and cost control ---
+
+  /**
+   * Optional. Without these the limiter falls back to in-memory, which is
+   * per-process and therefore only correct on a single instance.
+   */
+  UPSTASH_REDIS_REST_URL: z.string().url().optional(),
+  UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
+
+  /** Chat requests per user per minute. Generous for a human, ruinous for
+   *  a script trying to drain the API quota. */
+  RATE_LIMIT_CHAT_PER_MINUTE: z.coerce.number().int().positive().default(12),
+
+  /** Uploads are far more expensive than a chat turn — one document can be
+   *  hundreds of embedding calls. */
+  RATE_LIMIT_UPLOAD_PER_HOUR: z.coerce.number().int().positive().default(20),
+
+  /** Login and register, keyed on IP, to slow credential stuffing. */
+  RATE_LIMIT_AUTH_PER_15MIN: z.coerce.number().int().positive().default(20),
+
+  /**
+   * Hard ceiling on tokens a single user can spend per day.
+   *
+   * Rate limiting caps requests per minute; this caps total cost. They
+   * solve different problems — twelve requests a minute all day is still a
+   * very large bill, and the free tiers this runs on have daily caps that,
+   * once hit, take the app down for everyone.
+   */
+  DAILY_TOKEN_BUDGET: z.coerce.number().int().positive().default(150_000),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

@@ -11,6 +11,7 @@ import chatRoutes from "./routes/chat.js";
 import threadRoutes from "./routes/threads.js";
 import authRoutes from "./routes/auth.js";
 import documentRoutes from "./routes/documents.js";
+import usageRoutes from "./routes/usage.js";
 
 /**
  * Builds the Express app without starting a listener.
@@ -60,6 +61,7 @@ export function buildApp(): Express {
   app.use("/health", healthRoutes);
   app.use("/api/auth", authRoutes);
   app.use("/api/documents", documentRoutes);
+  app.use("/api/usage", usageRoutes);
   app.use("/api/threads", threadRoutes);
   app.use("/api/chat", chatRoutes);
 

@@ -2,6 +2,8 @@ import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { requireAuth, currentUser } from "../middleware/requireAuth.js";
+import { rateLimit } from "../middleware/rateLimit.js";
+import { assertWithinBudget } from "../services/limits/budget.js";
 import { validate } from "../middleware/validate.js";
 import { env } from "../config/env.js";
 import { BadRequestError, NotFoundError, PayloadTooLargeError } from "../lib/errors.js";
@@ -63,11 +65,22 @@ router.get("/", async (req, res) => {
   });
 });
 
-router.post("/", upload.single("file"), async (req, res) => {
+router.post(
+  "/",
+  // Uploads are the expensive path: one document can be hundreds of
+  // embedding calls, so the window is an hour rather than a minute.
+  rateLimit({
+    bucket: "upload",
+    limit: env.RATE_LIMIT_UPLOAD_PER_HOUR,
+    windowSeconds: 3_600,
+  }),
+  upload.single("file"),
+  async (req, res) => {
   const file = req.file;
   if (!file) throw new BadRequestError("No file uploaded — send one under the field name 'file'");
 
   const userId = currentUser(req).id;
+  await assertWithinBudget(userId);
 
   const document = await registerUpload({
     userId,
@@ -99,7 +112,8 @@ router.post("/", upload.single("file"), async (req, res) => {
     filename: document.filename,
     status: document.status,
   });
-});
+  },
+);
 
 router.get("/:documentId", validate({ params: DocumentIdParams }), async (req, res) => {
   const document = await DocumentModel.findOne({

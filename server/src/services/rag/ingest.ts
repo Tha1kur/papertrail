@@ -4,6 +4,8 @@ import ChunkModel from "../../models/Chunk.js";
 import { embeddingProvider } from "../llm/index.js";
 import { logger } from "../../lib/logger.js";
 import { ConflictError } from "../../lib/errors.js";
+import { recordUsage } from "../limits/budget.js";
+import { estimateTokens } from "../context/tokens.js";
 import { extract } from "./extract.js";
 import { chunkPages } from "./chunk.js";
 
@@ -110,6 +112,13 @@ export async function processDocument(documentId: string, userId: string): Promi
       );
 
       stored += batch.length;
+
+      // Embeddings are billed too, and a large upload can cost far more than
+      // a conversation. Counting only chat tokens would let uploads bypass
+      // the daily budget entirely.
+      await recordUsage(userId, {
+        embedTokens: batch.reduce((sum, c) => sum + estimateTokens(c.content), 0),
+      });
     }
 
     document.status = "ready";
