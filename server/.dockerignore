@@ -1,0 +1,16 @@
+# Reinstalled inside the image for the right platform — a host build of a
+# native module (bcrypt) will not run on Alpine.
+node_modules
+dist
+
+# Never let a real credential into an image layer. Layers persist even if a
+# later step deletes the file.
+.env
+.env.*
+!.env.example
+
+tests
+evals
+coverage
+*.log
+.DS_Store

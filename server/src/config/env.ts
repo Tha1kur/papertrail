@@ -214,6 +214,14 @@ const EnvSchema = z.object({
    * once hit, take the app down for everyone.
    */
   DAILY_TOKEN_BUDGET: z.coerce.number().int().positive().default(150_000),
+
+  // --- Observability ---
+
+  /** Optional. Without it, errors reach the logs and nowhere else. */
+  SENTRY_DSN: z.string().url().optional(),
+
+  /** Ties an error to the commit that caused it. Set from the git SHA in CI. */
+  SENTRY_RELEASE: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

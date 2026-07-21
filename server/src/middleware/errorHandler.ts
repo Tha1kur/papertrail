@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 import mongoose from "mongoose";
 import { AppError, NotFoundError, RateLimitError, ValidationError } from "../lib/errors.js";
 import { isProduction } from "../config/env.js";
+import { captureError } from "../lib/sentry.js";
 
 /** Shape every error response on this API takes. The frontend depends on it. */
 interface ErrorBody {
@@ -35,6 +36,12 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     req.log?.warn({ code: normalised.code, err: normalised.message }, "request failed");
   } else {
     req.log?.error({ err }, "unhandled error");
+    // Only programmer errors reach Sentry — see beforeSend in lib/sentry.ts
+    // for why operational failures are filtered out.
+    captureError(err, {
+      ...(requestId ? { requestId } : {}),
+      ...(req.user?.id ? { userId: req.user.id } : {}),
+    });
   }
 
   // Checked against the original error, not `normalised` — that is a plain

@@ -1,0 +1,59 @@
+# Local full stack. Production uses Atlas, Render and Vercel — this exists so
+# the whole thing can be run with one command, and so the Dockerfile is
+# exercised rather than only written.
+
+services:
+  mongo:
+    image: mongo:8
+    # A single-node replica set, not a standalone server. The repository layer
+    # uses transactions, which MongoDB only offers on a replica set — a
+    # standalone here would fail in a way production (Atlas, always a replica
+    # set) never would.
+    command: ["--replSet", "rs0", "--bind_ip_all", "--quiet"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # Initiates the replica set on first run, then reports healthy once it
+      # accepts writes. Without the initiate step the server starts but never
+      # elects a primary, and every write hangs.
+      test: >
+        mongosh --quiet --eval "
+          try { rs.status().ok }
+          catch { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}).ok }
+        "
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  server:
+    build:
+      context: ./server
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      MONGODB_URI: "mongodb://mongo:27017/papertrail?replicaSet=rs0&directConnection=true"
+      CORS_ORIGINS: "http://localhost:5173"
+      LOG_LEVEL: info
+      # Passed through from the host so no credential is ever baked into an
+      # image layer, where it would persist even if a later step removed it.
+      GEMINI_API_KEY: "${GEMINI_API_KEY:?set GEMINI_API_KEY in your shell or a .env file}"
+      GROQ_API_KEY: "${GROQ_API_KEY:?set GROQ_API_KEY}"
+      # Quoted: the message contains ": ", which YAML would otherwise read as
+      # a nested mapping.
+      JWT_ACCESS_SECRET: "${JWT_ACCESS_SECRET:?generate one with openssl rand -base64 48}"
+      SENTRY_DSN: "${SENTRY_DSN:-}"
+    depends_on:
+      mongo:
+        # Waits for the replica set to be usable, not merely for the container
+        # to exist. Without this the server starts first, fails to connect and
+        # exits by design.
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mongo-data:

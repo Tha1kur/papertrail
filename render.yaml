@@ -1,0 +1,63 @@
+# Render blueprint for the API.
+#
+# Checked in so the deployment is reproducible and reviewable rather than a
+# set of values someone typed into a dashboard once and cannot recall.
+
+services:
+  - type: web
+    name: papertrail-api
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: server
+
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+
+    # Render restarts an instance that fails this. Liveness, not readiness:
+    # readiness failing means "stop routing to me", and restarting on it turns
+    # a brief database blip into a restart loop.
+    healthCheckPath: /health/live
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      - key: PORT
+        # Render injects the real port; the app reads it from the environment
+        # rather than hardcoding 8080 as the original did.
+        value: 8080
+
+      # Secrets are set in the dashboard, never committed. sync:false stops
+      # Render from expecting a value in this file.
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+
+      # The browser only ever talks to the Vercel origin, because Vercel
+      # rewrites /api to this service. That keeps requests same-origin and the
+      # auth cookies first-party. This value is the fallback for anything
+      # calling the API host directly.
+      - key: CORS_ORIGINS
+        sync: false
+
+      - key: LOG_LEVEL
+        value: info
+
+      # Ties a Sentry error to the exact commit that caused it.
+      - key: SENTRY_RELEASE
+        fromService:
+          type: web
+          name: papertrail-api
+          property: commitId

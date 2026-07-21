@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to the same branch cancels the run already in progress. Without
+# this, a burst of commits queues several full runs and the useful one — the
+# latest — waits behind results nobody will read.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install
+        working-directory: server
+        # `ci` fails if the lockfile and package.json disagree, so a
+        # dependency cannot drift between a developer's machine and CI.
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: server
+        run: npm run typecheck
+
+      - name: Test
+        working-directory: server
+        # No secrets. The suite runs against an in-memory MongoDB and a fake
+        # language model, so it cannot reach a paid API or leak a key into a
+        # log — which is what makes it safe to run on pull requests from
+        # forks.
+        run: npm test
+
+  client:
+    name: Client
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install
+        working-directory: client
+        run: npm ci
+
+      - name: Lint
+        working-directory: client
+        run: npm run lint
+
+      - name: Typecheck
+        working-directory: client
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: client
+        run: npm run build
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./server
+          # Built but not pushed. The point is to catch a Dockerfile that
+          # stopped building — which otherwise surfaces during a deploy, at
+          # the worst possible moment.
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Audit server
+        working-directory: server
+        # Production dependencies only, and only high severity. Auditing dev
+        # dependencies produces a stream of advisories for build tooling that
+        # never runs in production — and a check that always fails is a check
+        # people learn to ignore.
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Audit client
+        working-directory: client
+        run: npm audit --omit=dev --audit-level=high

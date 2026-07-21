@@ -3,12 +3,16 @@ import { env } from "./config/env.js";
 import { connectDatabase, disconnectDatabase } from "./config/db.js";
 import { checkVectorIndex } from "./services/rag/indexHealth.js";
 import { logger } from "./lib/logger.js";
+import { initSentry, flushSentry } from "./lib/sentry.js";
 
 /**
  * Process entry point: connect dependencies, start listening, and make sure
  * we shut down without dropping requests on the floor.
  */
 async function main(): Promise<void> {
+  // First, so that a failure during startup is still reported.
+  initSentry();
+
   await connectDatabase();
 
   // Reports loudly if retrieval is unavailable. Deliberately not fatal:
@@ -52,6 +56,8 @@ async function main(): Promise<void> {
         server.close((err) => (err ? reject(err) : resolve()));
       });
       await disconnectDatabase();
+      // Events are batched; exiting without flushing loses them.
+      await flushSentry();
       logger.info("shutdown complete");
       process.exit(0);
     } catch (err) {
@@ -73,7 +79,9 @@ async function main(): Promise<void> {
 
   process.on("uncaughtException", (err) => {
     logger.fatal({ err }, "uncaught exception");
-    process.exit(1);
+    // Flush before exiting, or the error that killed the process is exactly
+    // the one that never gets reported.
+    void flushSentry(1_000).finally(() => process.exit(1));
   });
 }
 
