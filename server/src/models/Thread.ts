@@ -1,40 +1,56 @@
 import mongoose, { Schema, type InferSchemaType, type HydratedDocument } from "mongoose";
 
-export const MESSAGE_ROLES = ["user", "assistant"] as const;
-export type MessageRole = (typeof MESSAGE_ROLES)[number];
-
 /**
- * NOTE: messages are still embedded here. That is a known problem — a
- * MongoDB document is capped at 16MB and this array is unbounded, so a long
- * enough conversation eventually fails to save, and every append rewrites
- * the whole document. Moving messages to their own collection is the next
- * change (see docs/adr/0002-message-storage.md).
+ * A conversation. Messages are NOT stored here — see models/Message.ts for
+ * why the embedded array had to go.
+ *
+ * `_id` is the client-generated UUID rather than a Mongo ObjectId. That
+ * choice buys optimistic UI: the browser can mint an id, render the new
+ * thread and start showing the user's message before the server has replied,
+ * with no reconciliation step when the real id comes back. It also makes the
+ * create path idempotent — a retried request upserts the same thread instead
+ * of creating a second one.
  */
-const MessageSchema = new Schema(
-  {
-    role: { type: String, enum: MESSAGE_ROLES, required: true },
-    content: { type: String, required: true },
-  },
-  { _id: false, timestamps: { createdAt: true, updatedAt: false } },
-);
-
 const ThreadSchema = new Schema(
   {
-    threadId: { type: String, required: true, unique: true, index: true },
-    title: { type: String, default: "New Chat", trim: true, maxlength: 200 },
-    messages: { type: [MessageSchema], default: [] },
+    _id: { type: String, required: true },
+
+    title: { type: String, default: "New chat", trim: true, maxlength: 200 },
+
+    /**
+     * Denormalised counters. They duplicate what a query over Message could
+     * derive, which is a deliberate trade: rendering the sidebar would
+     * otherwise need an aggregation across the whole message collection on
+     * every load. They are maintained with $inc inside the same transaction
+     * as the message write, so they cannot drift.
+     */
+    messageCount: { type: Number, default: 0, min: 0 },
+    lastMessageAt: { type: Date },
+
+    /**
+     * Running summary of the turns that have aged out of the context window,
+     * so a long conversation keeps its gist without carrying its full token
+     * cost on every request.
+     */
+    summary: { type: String, default: "", maxlength: 4000 },
+
+    /**
+     * Everything created at or before this instant is already represented in
+     * `summary`. Stored as a timestamp rather than a message id because it is
+     * used directly as a range query bound when loading history.
+     */
+    summarisedThrough: { type: Date },
   },
   {
-    // Mongoose maintains createdAt/updatedAt itself. The original code set
-    // them by hand, which meant any write that forgot to touch updatedAt
-    // silently broke the "most recent first" ordering in the sidebar.
     timestamps: true,
+    // We supply _id ourselves; stop Mongoose casting it to ObjectId.
+    _id: false,
   },
 );
 
-// The sidebar always reads threads newest-first; without this index that is
-// a collection scan plus an in-memory sort on every page load.
-ThreadSchema.index({ updatedAt: -1 });
+// The sidebar reads threads newest-first. Without this it is a collection
+// scan and an in-memory sort every time.
+ThreadSchema.index({ lastMessageAt: -1 });
 
 export type Thread = InferSchemaType<typeof ThreadSchema>;
 export type ThreadDocument = HydratedDocument<Thread>;

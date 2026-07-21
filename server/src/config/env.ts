@@ -68,6 +68,17 @@ const EnvSchema = z.object({
 
   /** Upper bound on a single model call before we give up and fail over. */
   LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
+
+  /**
+   * Input tokens available for system prompt plus conversation history.
+   * Far below the model's actual context window on purpose: the window is a
+   * hard limit, but tokens are also latency and quota. Retrieved document
+   * chunks will compete for this same budget once RAG lands.
+   */
+  CONTEXT_BUDGET_TOKENS: z.coerce.number().int().positive().default(8_000),
+
+  /** SSE comment sent on an idle stream to stop proxies closing it. */
+  SSE_HEARTBEAT_MS: z.coerce.number().int().positive().default(15_000),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

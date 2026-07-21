@@ -1,118 +1,93 @@
 import { Router } from "express";
 import { z } from "zod";
-import ThreadModel from "../models/Thread.js";
-import { chatProvider } from "../services/llm/index.js";
 import { validate } from "../middleware/validate.js";
-import { NotFoundError, UpstreamError } from "../lib/errors.js";
+import { UpstreamError } from "../lib/errors.js";
+import { SSEStream } from "../lib/sseResponse.js";
+import { sendMessage, streamMessage } from "../services/chatService.js";
 
 const router = Router();
 
-const ThreadIdParams = z.object({
-  threadId: z.string().trim().min(1).max(64),
+const ChatBody = z.object({
+  threadId: z.uuid("Thread id must be a UUID"),
+  message: z.string().trim().min(1, "Message cannot be empty").max(8_000),
+  /**
+   * Optional, but the client should always send one. It is what makes a
+   * retry safe: without it, a request that times out on the client but
+   * succeeds on the server produces a duplicate message and a duplicate
+   * model call when the client tries again.
+   */
+  clientMessageId: z.uuid().optional(),
 });
 
-const ChatBody = z.object({
-  threadId: z.string().trim().min(1).max(64),
-  message: z.string().trim().min(1, "Message cannot be empty").max(8_000),
+type ChatInput = z.infer<typeof ChatBody>;
+
+/**
+ * Non-streaming send. Kept alongside the streaming endpoint because it is
+ * far simpler to call from a script or a test, and the two share all their
+ * logic in chatService.
+ */
+router.post("/", validate({ body: ChatBody }), async (req, res) => {
+  const { threadId, message, clientMessageId } = req.body as ChatInput;
+
+  try {
+    const result = await sendMessage({
+      threadId,
+      message,
+      ...(clientMessageId ? { clientMessageId } : {}),
+    });
+
+    req.log?.info({ threadId, provider: result.provider, model: result.model }, "reply generated");
+    res.json({ reply: result.reply, messageId: result.messageId });
+  } catch (err) {
+    throw new UpstreamError("Language model", "The model could not be reached", err);
+  }
 });
 
 /**
- * List threads, newest first.
+ * Streaming send over SSE.
  *
- * `messages` is deliberately excluded — the sidebar only needs titles, and
- * shipping every message of every thread to render a list is the kind of
- * over-fetch that is invisible in development and fatal in production.
+ * POST rather than the GET that EventSource requires, because the request
+ * carries a body and EventSource cannot send one. Clients read this with
+ * fetch and a ReadableStream instead.
+ *
+ * Note there is no try/catch translating errors into an HTTP status here:
+ * once headers are sent the status is already committed, so failures are
+ * delivered as an SSE `error` event on the open stream. The service layer
+ * has already persisted whatever text arrived before the failure.
  */
-router.get("/thread", async (_req, res) => {
-  const threads = await ThreadModel.find({}, { messages: 0 })
-    .sort({ updatedAt: -1 })
-    .limit(100)
-    .lean();
+router.post("/stream", validate({ body: ChatBody }), async (req, res) => {
+  const { threadId, message, clientMessageId } = req.body as ChatInput;
 
-  res.json(threads);
-});
+  const stream = new SSEStream(req, res);
 
-router.get("/thread/:threadId", validate({ params: ThreadIdParams }), async (req, res) => {
-  const { threadId } = req.params;
+  // Closing the tab must actually stop generation. Without this the request
+  // runs to completion against a socket nobody is reading, spending quota to
+  // produce text that is discarded.
+  const abort = new AbortController();
+  stream.onClose(() => {
+    abort.abort();
+    req.log?.info({ threadId }, "client disconnected — generation aborted");
+  });
 
-  const thread = await ThreadModel.findOne({ threadId }, { messages: 1 }).lean();
-
-  // The original wrote a 404 and then carried on to read `thread.messages`
-  // off null, so a missing thread produced a crash *after* the response had
-  // already been sent. Throwing instead of writing-and-continuing makes that
-  // class of mistake impossible.
-  if (!thread) throw new NotFoundError("Thread");
-
-  res.json(thread.messages);
-});
-
-router.delete("/thread/:threadId", validate({ params: ThreadIdParams }), async (req, res) => {
-  const { threadId } = req.params;
-
-  const deleted = await ThreadModel.findOneAndDelete({ threadId });
-  if (!deleted) throw new NotFoundError("Thread");
-
-  res.status(204).end();
-});
-
-router.post("/chat", validate({ body: ChatBody }), async (req, res) => {
-  const { threadId, message } = req.body as z.infer<typeof ChatBody>;
-
-  let thread = await ThreadModel.findOne({ threadId });
-
-  if (!thread) {
-    thread = new ThreadModel({
-      threadId,
-      // Titling the thread with the entire first message means a 8,000
-      // character paste becomes the sidebar label. Truncate at a word
-      // boundary instead.
-      title: buildTitle(message),
-      messages: [],
-    });
-  }
-
-  thread.messages.push({ role: "user", content: message });
-
-  // The whole conversation goes to the model, not just the latest turn.
-  // The original sent one message, so the assistant had no memory: ask "what
-  // did I just say?" and it genuinely could not tell you.
-  //
-  // Sending everything is not the final answer either — it grows without
-  // bound and eventually exceeds the context window. Token budgeting is the
-  // next change; this at least makes the feature work.
-  const history = thread.messages.map((m) => ({
-    role: m.role as "user" | "assistant",
-    content: m.content,
-  }));
-
-  let result;
   try {
-    result = await chatProvider.generate({ messages: history, temperature: 0.7 });
+    for await (const event of streamMessage({
+      threadId,
+      message,
+      signal: abort.signal,
+      ...(clientMessageId ? { clientMessageId } : {}),
+    })) {
+      if (stream.isClosed) break;
+      stream.send(event);
+    }
   } catch (err) {
-    // Persist the user's message even though the reply failed — losing what
-    // someone typed because a third party had a bad minute is unacceptable.
-    await thread.save();
-    throw new UpstreamError("Language model", "The model could not be reached", err);
+    req.log?.error({ err, threadId }, "stream handler failed");
+    stream.send({
+      type: "error",
+      message: "Generation failed",
+    });
+  } finally {
+    stream.close();
   }
-
-  thread.messages.push({ role: "assistant", content: result.text });
-  await thread.save();
-
-  req.log?.info(
-    { provider: result.provider, model: result.model, usage: result.usage },
-    "generated reply",
-  );
-
-  res.json({ reply: result.text });
 });
-
-function buildTitle(message: string, maxLength = 60): string {
-  const collapsed = message.replace(/\s+/g, " ").trim();
-  if (collapsed.length <= maxLength) return collapsed;
-
-  const cut = collapsed.slice(0, maxLength);
-  const lastSpace = cut.lastIndexOf(" ");
-  return `${(lastSpace > 20 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
-}
 
 export default router;

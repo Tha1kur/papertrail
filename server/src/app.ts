@@ -7,6 +7,7 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { ForbiddenError } from "./lib/errors.js";
 import healthRoutes from "./routes/health.js";
 import chatRoutes from "./routes/chat.js";
+import threadRoutes from "./routes/threads.js";
 
 /**
  * Builds the Express app without starting a listener.
@@ -50,7 +51,8 @@ export function buildApp(): Express {
   app.use(httpLogger);
 
   app.use("/health", healthRoutes);
-  app.use("/api", chatRoutes);
+  app.use("/api/threads", threadRoutes);
+  app.use("/api/chat", chatRoutes);
 
   // Order is load-bearing: 404 must come after all routes, and the error
   // handler must be last or Express will not recognise it as one.
