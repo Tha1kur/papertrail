@@ -42,7 +42,13 @@ router.post("/", validate({ body: ChatBody }), async (req, res) => {
     });
 
     req.log?.info({ threadId, provider: result.provider, model: result.model }, "reply generated");
-    res.json({ reply: result.reply, messageId: result.messageId });
+    res.json({
+      reply: result.reply,
+      messageId: result.messageId,
+      // Without these the answer arrives with no way to check it — which is
+      // the entire premise of the product.
+      citations: result.citations,
+    });
   } catch (err) {
     throw new UpstreamError("Language model", "The model could not be reached", err);
   }

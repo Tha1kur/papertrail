@@ -11,6 +11,14 @@ import {
   type Page,
 } from "../lib/pagination.js";
 
+export interface Citation {
+  documentId: string;
+  chunkId: string;
+  filename: string;
+  page?: number;
+  score?: number;
+}
+
 export interface MessageView {
   id: string;
   threadId: string;
@@ -20,6 +28,7 @@ export interface MessageView {
   createdAt: Date;
   provider?: string;
   model?: string;
+  citations?: Citation[];
 }
 
 export interface AppendInput {
@@ -32,6 +41,7 @@ export interface AppendInput {
   model?: string;
   usage?: { inputTokens: number; outputTokens: number };
   clientMessageId?: string;
+  citations?: Citation[];
 }
 
 /** Highest page size we will honour, so a client cannot ask for everything. */
@@ -69,6 +79,7 @@ export async function appendMessage(input: AppendInput): Promise<MessageView> {
             ...(input.provider ? { provider: input.provider } : {}),
             ...(input.model ? { model: input.model } : {}),
             ...(input.usage ? { usage: input.usage } : {}),
+            ...(input.citations?.length ? { citations: input.citations } : {}),
             ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
           },
         ],
@@ -137,6 +148,7 @@ export async function finaliseMessage(
     provider?: string;
     model?: string;
     usage?: { inputTokens: number; outputTokens: number };
+    citations?: Citation[];
   },
 ): Promise<void> {
   await MessageModel.updateOne(
@@ -148,6 +160,7 @@ export async function finaliseMessage(
         ...(update.provider ? { provider: update.provider } : {}),
         ...(update.model ? { model: update.model } : {}),
         ...(update.usage ? { usage: update.usage } : {}),
+        ...(update.citations?.length ? { citations: update.citations } : {}),
       },
     },
   );
@@ -231,6 +244,13 @@ interface RawMessage {
   createdAt: Date;
   provider?: string | null;
   model?: string | null;
+  citations?: Array<{
+    documentId: unknown;
+    chunkId: unknown;
+    filename: string;
+    page?: number | null;
+    score?: number | null;
+  }> | null;
 }
 
 function toView(row: RawMessage): MessageView {
@@ -243,6 +263,17 @@ function toView(row: RawMessage): MessageView {
     createdAt: row.createdAt,
     ...(row.provider ? { provider: row.provider } : {}),
     ...(row.model ? { model: row.model } : {}),
+    ...(row.citations?.length
+      ? {
+          citations: row.citations.map((c) => ({
+            documentId: String(c.documentId),
+            chunkId: String(c.chunkId),
+            filename: c.filename,
+            ...(c.page != null ? { page: c.page } : {}),
+            ...(c.score != null ? { score: c.score } : {}),
+          })),
+        }
+      : {}),
   };
 }
 

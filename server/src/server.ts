@@ -1,6 +1,7 @@
 import { buildApp } from "./app.js";
 import { env } from "./config/env.js";
 import { connectDatabase, disconnectDatabase } from "./config/db.js";
+import { checkVectorIndex } from "./services/rag/indexHealth.js";
 import { logger } from "./lib/logger.js";
 
 /**
@@ -9,6 +10,10 @@ import { logger } from "./lib/logger.js";
  */
 async function main(): Promise<void> {
   await connectDatabase();
+
+  // Reports loudly if retrieval is unavailable. Deliberately not fatal:
+  // everything except document search still works without it.
+  await checkVectorIndex();
 
   const app = buildApp();
   const server = app.listen(env.PORT, () => {

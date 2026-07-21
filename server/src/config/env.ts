@@ -106,6 +106,56 @@ const EnvSchema = z.object({
 
   /** Set when the API and client are on different subdomains in production. */
   COOKIE_DOMAIN: z.string().optional(),
+
+  // --- Retrieval ---
+
+  /**
+   * Passages returned per query. More is not better: every extra chunk
+   * spends context budget and dilutes the signal, and the model starts
+   * hedging across sources instead of answering from the best one.
+   */
+  RAG_TOP_K: z.coerce.number().int().min(1).max(20).default(6),
+
+  /** Slice of the context budget reserved for retrieved passages. The rest
+   *  goes to the system prompt and conversation history. */
+  RAG_CONTEXT_TOKENS: z.coerce.number().int().positive().default(3_000),
+
+  /**
+   * Minimum score for a passage to be used at all.
+   *
+   * Without a floor, a question the documents do not answer still returns
+   * the six least-irrelevant chunks, and the model dutifully builds an
+   * answer out of them. Retrieving nothing is a far better failure than
+   * retrieving noise and citing it.
+   *
+   * The value is measured, not guessed, and the scale is the trap. Atlas
+   * reports cosine similarity rescaled to (1 + cos) / 2, so 0.5 means
+   * *orthogonal* — not zero. A threshold that looks conservative on a raw
+   * cosine scale accepts essentially everything here.
+   *
+   * Measured against a sample corpus:
+   *   on-topic   0.883  0.887  0.877
+   *   off-topic  0.749  0.740
+   *   nonsense   0.773
+   *
+   * 0.80 sits in the gap. Note nonsense scored *above* coherent off-topic
+   * questions, which is a good reminder that these scores measure
+   * embedding-space proximity, not relevance or truth.
+   */
+  RAG_MIN_SCORE: z.coerce.number().min(0).max(1).default(0.8),
+
+  /**
+   * A passage is also dropped if it scores this far below the best match.
+   *
+   * An absolute floor alone cannot tell "six passages all strongly on
+   * topic" from "one good match and five that merely cleared the bar". This
+   * keeps a strong result from being diluted by weaker ones, which matters
+   * because the model hedges across whatever it is given.
+   */
+  RAG_SCORE_DROPOFF: z.coerce.number().min(0).max(1).default(0.08),
+
+  /** Atlas M0 has 512MB total, shared with every collection. */
+  MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

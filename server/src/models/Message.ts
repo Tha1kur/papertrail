@@ -75,6 +75,31 @@ const MessageSchema = new Schema(
     usage: { type: UsageSchema, default: () => ({}) },
 
     /**
+     * Passages retrieved for this reply, in the order they were numbered in
+     * the prompt.
+     *
+     * Stored on the message rather than recomputed on read because the
+     * document could later be deleted or re-indexed — and an answer that
+     * cited page 14 must keep saying page 14. A citation that silently
+     * changes meaning after the fact is worse than no citation.
+     */
+    citations: {
+      type: [
+        new Schema(
+          {
+            documentId: { type: Schema.Types.ObjectId, ref: "Document", required: true },
+            chunkId: { type: Schema.Types.ObjectId, required: true },
+            filename: { type: String, required: true },
+            page: { type: Number },
+            score: { type: Number },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
+
+    /**
      * Supplied by the client and unique per thread, so a retry after a
      * network blip does not create a duplicate message — or a duplicate
      * charge. Without this, "send" plus a flaky connection means the user

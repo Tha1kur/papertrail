@@ -9,8 +9,10 @@ import {
   beginStreamingMessage,
   finaliseMessage,
   recentMessages,
+  type Citation,
   type MessageView,
 } from "../repositories/messageRepository.js";
+import { retrieve, formatContext } from "./rag/retrieve.js";
 import {
   ensureThread,
   getSummaryState,
@@ -36,9 +38,27 @@ something, say so rather than guessing.
 You remember what the user has told you earlier in this conversation and
 should use it.
 
-When passages from the user's documents are supplied, ground your answer in
-them and cite which one you used. Say plainly when they do not cover the
-question, rather than quietly filling the gap from general knowledge.`;
+When passages from the user's documents are supplied you will be told how to
+use them. When none are supplied, answer normally from what you know.`;
+
+/**
+ * Appended only when passages were actually retrieved.
+ *
+ * The earlier version of this lived in the base prompt and told the model to
+ * say when the documents did not cover a question. That leaked into every
+ * conversation: asked the capital of Portugal with no documents in play, it
+ * answered "I do not know" — technically obedient, completely useless.
+ *
+ * Retrieval instructions only make sense when there is something retrieved,
+ * so they are attached at that moment and not before.
+ */
+const RETRIEVAL_INSTRUCTIONS = `Ground your answer in the passages below and cite them inline as [1], [2] and so on, matching the numbers given.
+
+Rules:
+- cite only passages you actually used
+- if the passages do not answer the question, say so first. You may then
+  answer from general knowledge, but state clearly that you are doing so
+- never present general knowledge as though it came from the documents`;
 
 /**
  * Upper bound on how many stored messages we will even consider for the
@@ -60,6 +80,7 @@ interface PreparedTurn {
   system: string;
   userMessage: MessageView;
   estimatedTokens: number;
+  citations: Citation[];
 }
 
 /**
@@ -92,12 +113,65 @@ async function prepareTurn(input: SendInput, provider: LLMProvider): Promise<Pre
 
   const history: ChatMessage[] = stored.map((m) => ({ role: m.role, content: m.content }));
 
+  /**
+   * Retrieval runs against the raw user message.
+   *
+   * A more sophisticated system would rewrite the question first — "what
+   * about the second one?" retrieves nothing useful on its own, because the
+   * embedding of a pronoun matches nothing. Query rewriting is the known
+   * next improvement here; it costs an extra model call per turn, which is
+   * why it is not in the first version.
+   */
+  const retrieved = await retrieve({
+    userId: input.userId,
+    query: input.message,
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
+
+  // Two filters. The absolute floor rejects passages that are not about the
+  // question at all; the drop-off rejects passages that are merely worse
+  // than the best one, so a single strong match is not diluted by five
+  // mediocre ones the model would then hedge across.
+  const best = retrieved[0]?.score ?? 0;
+  const relevant = retrieved.filter(
+    (chunk) =>
+      chunk.score >= env.RAG_MIN_SCORE && chunk.score >= best - env.RAG_SCORE_DROPOFF,
+  );
+  const { text: documentContext, used } = formatContext(relevant, env.RAG_CONTEXT_TOKENS);
+
+  const citations: Citation[] = used.map((chunk) => ({
+    documentId: chunk.documentId,
+    chunkId: chunk.chunkId,
+    filename: chunk.filename,
+    ...(chunk.page !== null ? { page: chunk.page } : {}),
+    score: chunk.score,
+  }));
+
+  const systemPrompt = documentContext
+    ? `${SYSTEM_PROMPT}\n\n${RETRIEVAL_INSTRUCTIONS}\n\nPassages from the user's documents:\n\n${documentContext}`
+    : SYSTEM_PROMPT;
+
   const context = buildContext({
     history,
     summary: summaryState?.summary || undefined,
-    systemPrompt: SYSTEM_PROMPT,
-    budget: env.CONTEXT_BUDGET_TOKENS,
+    systemPrompt,
+    // Retrieved passages have already been charged against the total, so
+    // history competes for what is left rather than for the whole budget.
+    budget: Math.max(env.CONTEXT_BUDGET_TOKENS - env.RAG_CONTEXT_TOKENS, 1_000),
   });
+
+  if (used.length > 0) {
+    logger.info(
+      {
+        threadId: input.threadId,
+        retrieved: retrieved.length,
+        aboveThreshold: relevant.length,
+        used: used.length,
+        topScore: retrieved[0]?.score,
+      },
+      "retrieved document context",
+    );
+  }
 
   // Summarisation happens inline rather than in a background job. That is a
   // deliberate simplification for a single-instance deployment: a queue would
@@ -130,6 +204,7 @@ async function prepareTurn(input: SendInput, provider: LLMProvider): Promise<Pre
     system: context.system,
     userMessage,
     estimatedTokens: context.estimatedTokens,
+    citations,
   };
 }
 
@@ -138,6 +213,7 @@ export interface SendResult {
   messageId: string;
   provider: string;
   model: string;
+  citations: Citation[];
 }
 
 export async function sendMessage(
@@ -162,6 +238,7 @@ export async function sendMessage(
     provider: result.provider,
     model: result.model,
     usage: result.usage,
+    citations: turn.citations,
   });
 
   return {
@@ -169,11 +246,12 @@ export async function sendMessage(
     messageId: assistant.id,
     provider: result.provider,
     model: result.model,
+    citations: turn.citations,
   };
 }
 
 export type ChatStreamEvent =
-  | { type: "message"; messageId: string }
+  | { type: "message"; messageId: string; citations: Citation[] }
   | { type: "delta"; text: string }
   | { type: "done"; messageId: string; provider: string; model: string }
   | { type: "error"; message: string; messageId: string };
@@ -194,7 +272,10 @@ export async function* streamMessage(
   const turn = await prepareTurn(input, provider);
 
   const messageId = await beginStreamingMessage(input.threadId, input.userId);
-  yield { type: "message", messageId };
+  // Citations are sent up front, before any text. The client can then render
+  // the sources immediately and highlight them as the answer refers to them,
+  // rather than having them appear after the user has finished reading.
+  yield { type: "message", messageId, citations: turn.citations };
 
   let accumulated = "";
   let provider_ = "";
@@ -219,6 +300,7 @@ export async function* streamMessage(
           provider: event.provider,
           model: event.model,
           usage: event.usage,
+          citations: turn.citations,
         });
       }
     }

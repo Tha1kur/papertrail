@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { isDatabaseHealthy } from "../config/db.js";
+import { isVectorIndexReady } from "../services/rag/indexHealth.js";
 
 const router = Router();
 
@@ -20,12 +21,20 @@ router.get("/live", (_req, res) => {
  */
 router.get("/", (_req, res) => {
   const database = isDatabaseHealthy();
+  const vectorIndex = isVectorIndexReady();
+
+  // Only the database gates readiness. A missing vector index degrades one
+  // feature; refusing all traffic over it would be a worse outage than the
+  // one it reports.
   const healthy = database;
 
   res.status(healthy ? 200 : 503).json({
-    status: healthy ? "ok" : "degraded",
+    status: healthy ? (vectorIndex ? "ok" : "degraded") : "unhealthy",
     uptimeSeconds: Math.floor(process.uptime()),
-    checks: { database: database ? "up" : "down" },
+    checks: {
+      database: database ? "up" : "down",
+      vectorIndex: vectorIndex ? "ready" : "unavailable",
+    },
   });
 });
 
