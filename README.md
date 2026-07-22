@@ -104,6 +104,19 @@ passage produces different vectors, and the models are trained so a query vector
 lands near the document vectors that answer it. Using the wrong task type is a
 silent quality regression that still returns plausible-looking results.
 
+**Bundle weight was measured, not assumed.** The markdown renderer is lazy-loaded,
+and syntax highlighting was the largest single item in it. `rehype-highlight`
+accepts a `languages` option and honours it — but it imports lowlight's full
+default grammar set statically, so configuration cannot remove what a static
+import already pulled in. Replacing it with a ~30-line local plugin over the
+languages this app actually meets, gzipped:
+
+| | initial | markdown chunk |
+| --- | --- | --- |
+| before code-splitting | 169 kB | — |
+| after splitting | 65 kB | 99 kB |
+| after the highlight plugin | 65 kB | **72 kB** |
+
 **Tenant isolation is a pre-filter inside the vector index**, not a filter applied
 afterwards. Retrieving the global top-k and discarding other users' chunks would
 both leak through result counts and starve the user's own results — their best
