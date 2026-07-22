@@ -11,7 +11,8 @@ comes back with the passage it was drawn from — file name, page number, and a
 relevance score. When the documents do not contain the answer, it says so instead
 of inventing one.
 
-> **Live:** _(add your URL once deployed)_
+> **Live API:** https://papertrail-api-njcy.onrender.com/health
+> **Live app:** _(add the Vercel URL once deployed)_
 > **Stack:** TypeScript · Node · Express · MongoDB Atlas Vector Search · React 19 · Tailwind
 
 ---

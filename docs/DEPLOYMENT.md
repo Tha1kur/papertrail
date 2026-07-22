@@ -63,8 +63,8 @@ Everything here is free tier. No payment details are required at any step.
 ## 3. Web client on Vercel
 
 1. **New Project** → import the repo → set **Root Directory** to `client`.
-2. Edit [`client/vercel.json`](../client/vercel.json) and replace
-   `REPLACE-WITH-YOUR-RENDER-URL` with your Render hostname, in both rewrites.
+2. `client/vercel.json` already points at the deployed API
+   (`papertrail-api-njcy.onrender.com`). Change it only if the API moves.
 3. Deploy.
 
 ### Why rewrites instead of calling the API directly
