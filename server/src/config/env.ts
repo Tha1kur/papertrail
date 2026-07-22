@@ -220,8 +220,21 @@ const EnvSchema = z.object({
   /** Optional. Without it, errors reach the logs and nowhere else. */
   SENTRY_DSN: z.string().url().optional(),
 
-  /** Ties an error to the commit that caused it. Set from the git SHA in CI. */
+  /**
+   * Ties an error to the commit that caused it.
+   *
+   * Rarely set by hand: the fallback below reads the commit SHA that the
+   * hosting platform already injects. Wiring it explicitly in render.yaml was
+   * the original approach and does not work — Render's `fromService` exposes
+   * connection details only, not git metadata.
+   */
   SENTRY_RELEASE: z.string().optional(),
+
+  /** Injected by Render on every service built from a repo. */
+  RENDER_GIT_COMMIT: z.string().optional(),
+
+  /** The equivalent on Vercel, so the same code works if the API moves. */
+  VERCEL_GIT_COMMIT_SHA: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -245,6 +258,15 @@ function loadEnv(): Env {
 }
 
 export const env = loadEnv();
+
+/**
+ * Which commit is running, for error reporting.
+ *
+ * Falls back to whatever the platform injects, so a deployed error points at
+ * an exact commit without anyone having to remember to set a variable.
+ */
+export const release: string | undefined =
+  env.SENTRY_RELEASE ?? env.RENDER_GIT_COMMIT ?? env.VERCEL_GIT_COMMIT_SHA;
 
 export const isProduction = env.NODE_ENV === "production";
 export const isTest = env.NODE_ENV === "test";

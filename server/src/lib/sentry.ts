@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/node";
-import { env, isProduction } from "../config/env.js";
+import { env, isProduction, release } from "../config/env.js";
 import { logger } from "./logger.js";
 import { AppError } from "./errors.js";
 
@@ -21,7 +21,7 @@ export function initSentry(): void {
   Sentry.init({
     dsn: env.SENTRY_DSN,
     environment: env.NODE_ENV,
-    ...(env.SENTRY_RELEASE ? { release: env.SENTRY_RELEASE } : {}),
+    ...(release ? { release } : {}),
 
     // Sampled, not exhaustive. The free tier is 5k events a month, and a
     // single bad deploy can produce that in minutes — at which point the

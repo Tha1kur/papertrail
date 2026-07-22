@@ -55,9 +55,13 @@ services:
       - key: LOG_LEVEL
         value: info
 
-      # Ties a Sentry error to the exact commit that caused it.
-      - key: SENTRY_RELEASE
-        fromService:
-          type: web
-          name: papertrail-api
-          property: commitId
+      # SENTRY_RELEASE is deliberately absent.
+      #
+      # It used to be wired via `fromService: property: commitId`, which
+      # Render rejects — fromService only exposes connection details
+      # (connectionString, host, hostport, port), not git metadata.
+      #
+      # Render already injects RENDER_GIT_COMMIT into every service built
+      # from a repo, so config/env.ts falls back to it. Same result, one
+      # fewer thing to configure, and it cannot drift from the deployed
+      # commit because Render sets it.
