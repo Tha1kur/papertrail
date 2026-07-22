@@ -44,6 +44,62 @@ jobs:
         # forks.
         run: npm test
 
+  production-build:
+    name: Production build (Render conditions)
+    runs-on: ubuntu-latest
+
+    # Reproduces the hosting environment rather than a developer's.
+    #
+    # The ordinary jobs install with NODE_ENV unset, so devDependencies are
+    # always present and a build that depends on them looks fine. Render sets
+    # NODE_ENV=production, npm then skips devDependencies, and the build died
+    # with ~90 missing-type errors — a failure that only appeared on a real
+    # deploy, which is the worst place to find it.
+    env:
+      NODE_ENV: production
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Build exactly as the host does
+        working-directory: server
+        run: npm ci --include=dev && npm run build
+
+      - name: Start under production dependencies only
+        working-directory: server
+        # Having built, prune to what actually ships and confirm the compiled
+        # output still boots. Catches a runtime import that was only ever
+        # satisfied by a devDependency.
+        run: |
+          npm prune --omit=dev
+          node -e "
+            const { spawn } = require('node:child_process');
+            const child = spawn('node', ['dist/server.js'], {
+              env: { ...process.env, MONGODB_URI: 'mongodb://127.0.0.1:27017/x',
+                     JWT_ACCESS_SECRET: 'x'.repeat(40),
+                     GEMINI_API_KEY: 'x', GROQ_API_KEY: 'x' },
+            });
+            let out = '';
+            const done = (code) => {
+              // Connecting to a database that is not there is expected and
+              // fine. A module resolution failure is not.
+              if (/Cannot find (module|package)|ERR_MODULE_NOT_FOUND/.test(out)) {
+                console.error('Missing runtime dependency:\n' + out);
+                process.exit(1);
+              }
+              console.log('Compiled output loads with production dependencies only.');
+              process.exit(0);
+            };
+            child.stdout.on('data', (d) => (out += d));
+            child.stderr.on('data', (d) => (out += d));
+            setTimeout(() => { child.kill(); done(); }, 12000);
+            child.on('exit', done);
+          "
+
   client:
     name: Client
     runs-on: ubuntu-latest

@@ -11,7 +11,18 @@ services:
     region: singapore
     rootDir: server
 
-    buildCommand: npm ci && npm run build
+    # --include=dev is load-bearing, not decorative.
+    #
+    # NODE_ENV=production is set below for the runtime, and npm reads it
+    # during install too — so a plain `npm ci` skips devDependencies, which
+    # is where typescript and every @types package lives. The build then
+    # fails with ~90 "cannot find type definitions" errors that look like a
+    # broken codebase rather than a missing install flag.
+    #
+    # The Dockerfile avoids this differently: its build stage never sets
+    # NODE_ENV, and only the runtime stage does. Same principle, and it is
+    # why the image built fine in CI while this did not.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
 
     # Render restarts an instance that fails this. Liveness, not readiness:
