@@ -9,6 +9,23 @@ import { z } from "zod";
  * not a string` five frames deep. Failing here means a misconfigured deploy
  * dies immediately with a message that says exactly which key is wrong.
  */
+/**
+ * Treats an empty string as "not set".
+ *
+ * Hosting dashboards submit a blank field as "" rather than omitting it, so
+ * an optional variable someone left empty arrives as an empty string. Plain
+ * `.optional()` accepts undefined but rejects "", which means leaving an
+ * optional box blank in Render fails validation and the service refuses to
+ * boot — with a message about an invalid URL for a feature the user never
+ * wanted to enable.
+ */
+function blankToUndefined<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    schema,
+  );
+}
+
 const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
@@ -26,15 +43,24 @@ const EnvSchema = z.object({
     .default("info"),
 
   /** Comma-separated list. Never `*` — this API will use cookie auth. */
-  CORS_ORIGINS: z
-    .string()
-    .default("http://localhost:5173")
-    .transform((value) =>
-      value
-        .split(",")
-        .map((origin) => origin.trim())
-        .filter((origin) => origin.length > 0),
-    ),
+  /**
+   * Blank falls back to the default rather than becoming an empty allowlist.
+   *
+   * An empty array is not "allow nothing" in any useful sense — it silently
+   * rejects every browser request, and the symptom is a CORS error in the
+   * client with a perfectly healthy-looking server.
+   */
+  CORS_ORIGINS: blankToUndefined(
+    z
+      .string()
+      .default("http://localhost:5173")
+      .transform((value) =>
+        value
+          .split(",")
+          .map((origin) => origin.trim())
+          .filter((origin) => origin.length > 0),
+      ),
+  ),
 
   /** Graceful shutdown gives in-flight requests this long to finish. */
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
@@ -105,7 +131,7 @@ const EnvSchema = z.object({
   BCRYPT_ROUNDS: z.coerce.number().int().min(10).max(15).default(12),
 
   /** Set when the API and client are on different subdomains in production. */
-  COOKIE_DOMAIN: z.string().optional(),
+  COOKIE_DOMAIN: blankToUndefined(z.string().optional()),
 
   // --- Retrieval ---
 
@@ -191,8 +217,8 @@ const EnvSchema = z.object({
    * Optional. Without these the limiter falls back to in-memory, which is
    * per-process and therefore only correct on a single instance.
    */
-  UPSTASH_REDIS_REST_URL: z.string().url().optional(),
-  UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
+  UPSTASH_REDIS_REST_URL: blankToUndefined(z.string().url().optional()),
+  UPSTASH_REDIS_REST_TOKEN: blankToUndefined(z.string().min(1).optional()),
 
   /** Chat requests per user per minute. Generous for a human, ruinous for
    *  a script trying to drain the API quota. */
@@ -218,7 +244,7 @@ const EnvSchema = z.object({
   // --- Observability ---
 
   /** Optional. Without it, errors reach the logs and nowhere else. */
-  SENTRY_DSN: z.string().url().optional(),
+  SENTRY_DSN: blankToUndefined(z.string().url().optional()),
 
   /**
    * Ties an error to the commit that caused it.
@@ -228,13 +254,13 @@ const EnvSchema = z.object({
    * the original approach and does not work — Render's `fromService` exposes
    * connection details only, not git metadata.
    */
-  SENTRY_RELEASE: z.string().optional(),
+  SENTRY_RELEASE: blankToUndefined(z.string().optional()),
 
   /** Injected by Render on every service built from a repo. */
-  RENDER_GIT_COMMIT: z.string().optional(),
+  RENDER_GIT_COMMIT: blankToUndefined(z.string().optional()),
 
   /** The equivalent on Vercel, so the same code works if the API moves. */
-  VERCEL_GIT_COMMIT_SHA: z.string().optional(),
+  VERCEL_GIT_COMMIT_SHA: blankToUndefined(z.string().optional()),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
