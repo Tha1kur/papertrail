@@ -3,6 +3,13 @@
 node_modules
 dist
 
+# Deliberately excluded. It sets include=dev to work around Render skipping
+# devDependencies under NODE_ENV=production, and an .npmrc `include` beats
+# the --omit=dev CLI flag — so letting the image see it would ship the whole
+# build toolchain in the runtime layer. The Docker build stage installs
+# everything regardless, because it never sets NODE_ENV.
+.npmrc
+
 # Never let a real credential into an image layer. Layers persist even if a
 # later step deletes the file.
 .env

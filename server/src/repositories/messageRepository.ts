@@ -244,7 +244,17 @@ interface RawMessage {
   createdAt: Date;
   provider?: string | null;
   model?: string | null;
-  citations?: Array<{
+  /**
+   * Typed as array-like rather than a plain array.
+   *
+   * `toObject()` hands back Mongoose's DocumentArray for a subdocument
+   * array, and that is not structurally a plain `T[]` — it carries extra
+   * members and, under exactOptionalPropertyTypes, TypeScript rejects the
+   * assignment outright. Accepting the shape actually needed (indexable and
+   * iterable) works for both a DocumentArray and the plain array that comes
+   * back from `.lean()`, which is the other caller of this function.
+   */
+  citations?: ArrayLike<{
     documentId: unknown;
     chunkId: unknown;
     filename: string;
@@ -265,7 +275,8 @@ function toView(row: RawMessage): MessageView {
     ...(row.model ? { model: row.model } : {}),
     ...(row.citations?.length
       ? {
-          citations: row.citations.map((c) => ({
+          // Array.from because ArrayLike has no .map of its own.
+          citations: Array.from(row.citations, (c) => ({
             documentId: String(c.documentId),
             chunkId: String(c.chunkId),
             filename: c.filename,
