@@ -11,8 +11,8 @@ comes back with the passage it was drawn from — file name, page number, and a
 relevance score. When the documents do not contain the answer, it says so instead
 of inventing one.
 
-> **Live API:** https://papertrail-api-njcy.onrender.com/health
-> **Live app:** _(add the Vercel URL once deployed)_
+> **Live:** https://papertrail-dusky.vercel.app
+> **API health:** https://papertrail-api-njcy.onrender.com/health
 > **Stack:** TypeScript · Node · Express · MongoDB Atlas Vector Search · React 19 · Tailwind
 
 ---
@@ -130,6 +130,13 @@ parties hold the same credential, and the entire session family is revoked.
 
 Tokens live in cookies rather than `localStorage`, which any script on the page can
 read: one XSS in any dependency would otherwise be total account takeover.
+
+The cookies are `SameSite=Lax`, which is only possible because Vercel rewrites
+`/api` to the API service — the browser talks to one origin, so the cookies are
+first-party. The first version used `SameSite=None` on the assumption that
+Vercel and Render are different sites; the proxy makes that false, and Lax
+withholds the cookie on cross-site requests, which is CSRF protection at no
+cost.
 
 The login endpoint compares against a dummy hash when the account does not exist,
 so "no such user" and "wrong password" cost similar time and return an identical

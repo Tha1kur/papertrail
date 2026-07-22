@@ -133,6 +133,20 @@ const EnvSchema = z.object({
   /** Set when the API and client are on different subdomains in production. */
   COOKIE_DOMAIN: blankToUndefined(z.string().optional()),
 
+  /**
+   * SameSite policy for the auth cookies.
+   *
+   * "lax" is the default and the right answer for the deployed setup: Vercel
+   * rewrites /api to the API service, so the browser only ever talks to one
+   * origin and the cookies are first-party. Lax then blocks them on
+   * cross-site requests, which is CSRF protection for free.
+   *
+   * "none" is only needed if a browser calls the API host directly, which
+   * this client never does. It is strictly weaker — the cookie rides along
+   * on cross-site requests — so it must be opted into rather than assumed.
+   */
+  COOKIE_SAMESITE: z.enum(["lax", "strict", "none"]).default("lax"),
+
   // --- Retrieval ---
 
   /**

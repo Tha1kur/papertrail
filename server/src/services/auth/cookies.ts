@@ -22,14 +22,22 @@ function baseOptions(): CookieOptions {
     // impossible on http://localhost, hence the environment check.
     secure: isProduction,
     /**
-     * "none" in production because the API and the client are on different
-     * sites (Render and Vercel), and a cross-site request drops "lax"
-     * cookies. "none" demands Secure, which production has.
+     * Lax by default, in production as well as locally.
      *
-     * Locally both are localhost, so "lax" applies and gives CSRF protection
-     * for free during development.
+     * This was originally "none" in production, on the assumption that the
+     * client on Vercel and the API on Render are different sites and a
+     * cross-site request would drop a Lax cookie. The deployed architecture
+     * makes that assumption false: Vercel rewrites /api to the API service,
+     * so every request the browser makes is to the Vercel origin and the
+     * cookies are first-party.
+     *
+     * Lax is strictly safer — it withholds the cookie on cross-site
+     * requests, which is CSRF protection at no cost. "none" is available
+     * via COOKIE_SAMESITE for a deployment that really does call the API
+     * host directly from a browser, but it should be a deliberate choice
+     * rather than a default nobody revisited.
      */
-    sameSite: isProduction ? "none" : "lax",
+    sameSite: env.COOKIE_SAMESITE,
     ...(env.COOKIE_DOMAIN ? { domain: env.COOKIE_DOMAIN } : {}),
   };
 }
