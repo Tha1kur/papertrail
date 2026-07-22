@@ -27,7 +27,14 @@ Everything here is free tier. No payment details are required at any step.
 ## 2. API on Render
 
 1. **New → Blueprint**, point it at the repo. Render reads [`render.yaml`](../render.yaml).
-2. Set the secrets marked `sync: false` in the dashboard:
+2. Set the secrets marked `sync: false` in the dashboard. To avoid
+   transcribing them by hand, print them from your local `.env`:
+
+   ```bash
+   bash server/scripts/print-deploy-env.sh
+   ```
+
+   The values are:
 
    | Key | Value |
    | --- | --- |
