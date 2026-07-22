@@ -1,26 +1,10 @@
-import {
-  createContext,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
-
-type Theme = "light" | "dark";
-
-export interface ThemeState {
-  theme: Theme;
-  toggle: () => void;
-}
-
-export const ThemeContext = createContext<ThemeState | null>(null);
-const STORAGE_KEY = "papertrail-theme";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { ThemeContext, THEME_STORAGE_KEY, type Theme } from "./themeContext";
 
 /** Read synchronously during the first render so the page never paints in
  *  the wrong theme and then snaps — the flash-of-wrong-theme problem. */
 function initialTheme(): Theme {
-  const stored = localStorage.getItem(STORAGE_KEY);
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
   if (stored === "light" || stored === "dark") return stored;
 
   // No explicit choice: follow the operating system.
@@ -37,7 +21,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // Follow the OS while the user has not expressed a preference of their own.
   useEffect(() => {
-    if (localStorage.getItem(STORAGE_KEY)) return;
+    if (localStorage.getItem(THEME_STORAGE_KEY)) return;
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = (event: MediaQueryListEvent) => setTheme(event.matches ? "dark" : "light");
@@ -49,7 +33,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const toggle = useCallback(() => {
     setTheme((current) => {
       const next = current === "dark" ? "light" : "dark";
-      localStorage.setItem(STORAGE_KEY, next);
+      localStorage.setItem(THEME_STORAGE_KEY, next);
       return next;
     });
   }, []);

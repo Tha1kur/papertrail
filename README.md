@@ -1,5 +1,9 @@
 # PaperTrail
 
+[![CI](https://github.com/Tha1kur/papertrail/actions/workflows/ci.yml/badge.svg)](https://github.com/Tha1kur/papertrail/actions/workflows/ci.yml)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)
+![Tests](https://img.shields.io/badge/tests-70%20passing-brightgreen)
+
 Ask questions about your own documents and get answers with citations you can check.
 
 Upload a PDF or a set of notes, ask a question in plain language, and every answer
@@ -155,7 +159,7 @@ arrives.
 [Groq](https://console.groq.com). No payment details required for any of them.
 
 ```bash
-git clone <your-repo-url> && cd papertrail
+git clone https://github.com/Tha1kur/papertrail.git && cd papertrail
 
 # API
 cd server
